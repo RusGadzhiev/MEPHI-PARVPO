@@ -1,0 +1,50 @@
+version: '3.1'
+
+services:
+
+  tickets_manager:
+    container_name: tickets_manager
+    build: 
+      context: ./
+      dockerfile: ./Dockerfile
+    restart: always
+    depends_on:
+      - postgres
+      - kafka
+    environment:
+      pg_pass: "${pg_pass}"
+    ports:
+      - "8880:8880"
+    networks:
+      - net
+  
+  postgres:
+    image: postgres:latest
+    restart: always
+    environment:
+      POSTGRES_PASSWORD: "${pg_pass}"
+      POSTGRES_USER: "ruslan"
+    ports:
+      - "5432:5432"
+    networks:
+      - net
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    environment:
+      - ZOOKEEPER_CLIENT_PORT=2181
+    networks:
+      - net
+
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    depends_on:
+      - zookeeper
+    environment:
+      - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+    networks:
+      - net
+
+networks:
+  net:
