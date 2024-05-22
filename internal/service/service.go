@@ -8,25 +8,25 @@ import (
 )
 
 var (
-	ErrSoldOut = fmt.Errorf("sold out")
-	ErrNoConcert = fmt.Errorf("no such concert")
+	ErrSoldOut       = fmt.Errorf("sold out")
+	ErrNoConcert     = fmt.Errorf("no such concert")
 	ErrUserRegistred = fmt.Errorf("user is already registred")
 )
 
+// добавь теги
 type Concert struct {
-	Name              string
+	Name              string 
 	QtyOccupiedPlaces uint16
 	PlacesQty         uint16
 	SoldOut           bool
 }
 
 type Record struct {
-	Username string
-	Concert  string
+	Username string `json:"username"`
+	Concert  string `json:"concert"`
 }
 
 type Storage interface {
-	GetConcerts(ctx context.Context) ([]Concert, error)
 	GetConcert(ctx context.Context, name string) (*Concert, error)
 	AddRecord(ctx context.Context, record Record) error
 	IsRecordExist(ctx context.Context, record Record) bool
@@ -40,10 +40,6 @@ func NewService(repo Storage) *service {
 	return &service{
 		repo: repo,
 	}
-}
-
-func (s *service) GetConcerts(ctx context.Context) ([]Concert, error) {
-	return s.repo.GetConcerts(ctx)
 }
 
 func (s *service) AddRecord(ctx context.Context, record Record) error {

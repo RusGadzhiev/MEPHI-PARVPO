@@ -1,4 +1,4 @@
-version: '3.1'
+version: '2'
 
 services:
 
@@ -20,6 +20,7 @@ services:
   
   postgres:
     image: postgres:latest
+    container_name: postgres
     restart: always
     environment:
       POSTGRES_PASSWORD: "${pg_pass}"
@@ -33,18 +34,34 @@ services:
     image: confluentinc/cp-zookeeper:latest
     environment:
       - ZOOKEEPER_CLIENT_PORT=2181
+    ports:
+      - "2181:2181"
     networks:
       - net
 
   kafka:
     image: confluentinc/cp-kafka:latest
+    container_name: kafka
     depends_on:
       - zookeeper
     environment:
       - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
       - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+    ports:
+      - "9092:9092"
+    networks:
+      - net
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui
+    container_name: kafka-ui
+    environment:
+      - DYNAMIC_CONFIG_ENABLED=true
+    ports:
+      - "8080:8080"
     networks:
       - net
 
 networks:
   net:
+    driver: bridge

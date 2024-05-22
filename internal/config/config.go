@@ -12,8 +12,9 @@ const (
 )
 
 type Config struct {
-	Server        Server `yaml:"server"`
-	PgDb          PgDb   `yaml:"pg_db"`
+	Server Server `yaml:"server"`
+	PgDb   PgDb   `yaml:"pg_db"`
+	Kafka  Kafka  `yaml:"kafka"`
 }
 
 type Server struct {
@@ -30,6 +31,10 @@ type PgDb struct {
 	Port     string `yaml:"port" env-default:"5432"`
 	User     string `yaml:"username"`
 	Password string `env:"pg_pass"`
+}
+
+type Kafka struct {
+	Addr       string `yaml:"addr" env-default:"kafka:9092"`
 }
 
 func MustLoad() *Config {

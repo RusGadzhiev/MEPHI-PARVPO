@@ -17,6 +17,6 @@ FROM alpine:latest AS runner
 COPY --from=builder /app/tickets_manager .
 COPY --from=builder /app/config.yaml ./config.yaml
 
-EXPOSE 8880 5432
+EXPOSE 8880 5432 9092
 
 CMD [ "./tickets_manager" ]

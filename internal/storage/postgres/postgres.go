@@ -112,28 +112,6 @@ func (s *postgresStorage) GetConcert(ctx context.Context, name string) (*service
 	return &c, nil
 }
 
-func (s *postgresStorage) GetConcerts(ctx context.Context) ([]service.Concert, error) {
-	q := `SELECT name, places_qty, qty_occupied_places, sold_out FROM concerts`
-
-	rows, err := s.pool.Query(ctx, q)
-	if err != nil {
-		return nil, fmt.Errorf("get concerts error (names)")
-	}
-	defer rows.Close()
-	concerts := []service.Concert{}
-
-	for rows.Next() {
-		c := service.Concert{}
-		err := rows.Scan(&c.Name, &c.PlacesQty, &c.QtyOccupiedPlaces, &c.SoldOut)
-		if err != nil {
-			return nil, fmt.Errorf("getting row from concerts error")
-		}
-		concerts = append(concerts, c)
-	}
-
-	return concerts, nil
-}
-
 func (s *postgresStorage) AddRecord(ctx context.Context, record service.Record) error {
 
 	transaction, err := s.pool.Begin(ctx)

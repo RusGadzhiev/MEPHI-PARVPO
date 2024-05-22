@@ -1,104 +1,92 @@
 package httpHandler
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
+	"sync"
 	"time"
 
+	"github.com/IBM/sarama"
+	"github.com/RusGadzhiev/MEPHI-PARVPO/internal/broker/kafka"
 	"github.com/RusGadzhiev/MEPHI-PARVPO/internal/service"
 	"github.com/RusGadzhiev/MEPHI-PARVPO/pkg/logger"
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 )
 
-type Service interface {
-	GetConcerts(ctx context.Context) ([]service.Concert, error)
-	AddRecord(ctx context.Context, record service.Record) error
-}
-
 type HttpHandler struct {
-	service Service
-}
-
-func NewHttpHandler(service Service) *HttpHandler {
-	return &HttpHandler{
-		service: service,
-	}
-}
-
-func (h *HttpHandler) Router() *mux.Router {
-	r := mux.NewRouter()
-	r.StrictSlash(true)
-	r.HandleFunc("/get-concerts", h.GetConcerts).Methods("GET")
-	r.HandleFunc("/add-record", h.AddRecord).Methods("POST")
-
-	r.Use(func(hdl http.Handler) http.Handler {
-		return h.PanicRecoverMiddleware(hdl)
-	})
-	r.Use(func(hdl http.Handler) http.Handler {
-		return h.LoggingMiddleware(hdl)
-	})
-	
-	return r
-}
-
-func (h *HttpHandler) GetConcerts(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-
-	concerts, err := h.service.GetConcerts(ctx)
-	if err != nil {
-		logger.Errorf("GetConcerts err: %w", err)
-		h.serverError(w)
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
-	err = renderJSON(w, concerts)
-	if err != nil {
-		logger.Errorf("RenderJson err: %w", err)
-	}
+	broker kafka.ApiBroker
 }
 
 func (h *HttpHandler) AddRecord(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
+	var mu sync.Mutex
 
-	record := &service.Record{
-		Concert: r.URL.Query().Get("concert"),
+	record := service.Record{
+		Concert:  r.URL.Query().Get("concert"),
 		Username: r.URL.Query().Get("user"),
 	}
 
 	if record.Concert == "" || record.Username == "" {
-		logger.Info("No request data")
+		logger.Info("Bad Response")
 		h.clientError(w)
 		return
 	}
 
-	err := h.service.AddRecord(ctx, *record)
-	if err == service.ErrSoldOut {
-		logger.Info(err, record.Concert)
-		w.WriteHeader(http.StatusOK)
-		err = renderJSON(w, err.Error())
-		if err != nil {
-			logger.Errorf("RenderJson err: %w", err)
-		}
-		return
-	} else if err == service.ErrNoConcert {
-		logger.Infof("No concert: %s", record.Concert)
-		h.clientError(w)
-		return
-	} else if err == service.ErrUserRegistred {
-		logger.Infof("User: %s, Concert: %s,  %s", record.Username, record.Concert, err.Error())
-		h.clientError(w)
-		return
-	} else if err != nil {
-		logger.Errorf("AddRecord err: %w", err)
+	requestID := uuid.New().String()
+
+	message := kafka.Message{
+		ID:    requestID,
+		Value: record,
+	}
+
+	bytes, err := json.Marshal(message)
+	if err != nil {
+		logger.Errorf("failed to marshal JSON err: %v", err)
 		h.serverError(w)
 		return
 	}
 
-	w.WriteHeader(http.StatusCreated)
+	msg := &sarama.ProducerMessage{
+		Topic: kafka.RequestsTopic,
+		Key:   sarama.StringEncoder(requestID),
+		Value: sarama.ByteEncoder(bytes),
+	}
+
+	_, _, err = h.broker.Producer.SendMessage(msg)
+	if err != nil {
+		logger.Infof("Failed to send message to Kafka: %v", err)
+		h.serverError(w)
+		return
+	}
+
+	responseCh := make(chan *sarama.ConsumerMessage)
+	mu.Lock()
+	h.broker.ResponseChannels[requestID] = responseCh
+	mu.Unlock()
+
+	// кажется здесь не надо в отдельной горутине запускать, эта функция уже в отдельной горутине
+	select {
+	case responseMsg := <-responseCh:
+		var receivedMessage string
+		err := json.Unmarshal(responseMsg.Value, &receivedMessage)
+		if err != nil {
+			logger.Errorf("Error unmarshaling JSON: %v", err)
+			h.serverError(w)
+			return
+		}
+		logger.Infof("Response: %v", receivedMessage)
+		w.WriteHeader(http.StatusOK)
+		err = renderJSON(w, receivedMessage)
+		if err != nil {
+			logger.Errorf("RenderJson err: %w", err)
+		}
+	case <-time.After(10 * time.Second):
+		mu.Lock()
+		delete(h.broker.ResponseChannels, requestID)
+		mu.Unlock()
+		logger.Infof("timeout waiting for response")
+		h.serverError(w)
+	}
 }
 
 // renderJSON преобразует 'v' в формат JSON и записывает результат, в виде ответа, в w.
@@ -118,4 +106,25 @@ func (h *HttpHandler) serverError(w http.ResponseWriter) {
 
 func (h *HttpHandler) clientError(w http.ResponseWriter) {
 	http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+}
+
+func NewHttpHandler(b kafka.ApiBroker) *HttpHandler {
+	return &HttpHandler{
+		broker: b,
+	}
+}
+
+func (h *HttpHandler) Router() *mux.Router {
+	r := mux.NewRouter()
+	r.StrictSlash(true)
+	r.HandleFunc("/add-record", h.AddRecord).Methods("POST")
+
+	r.Use(func(hdl http.Handler) http.Handler {
+		return h.PanicRecoverMiddleware(hdl)
+	})
+	r.Use(func(hdl http.Handler) http.Handler {
+		return h.LoggingMiddleware(hdl)
+	})
+
+	return r
 }
