@@ -22,7 +22,7 @@ type ApiBroker struct {
 
 
 func StartApiBroker(cfg config.Kafka) (*ApiBroker, func()) {
-	responseChannels := make(map[string]chan *sarama.ConsumerMessage)
+	responseChannels := make(map[string]chan *sarama.ConsumerMessage, 100)
 	var mu sync.Mutex
 
 	producer, err := sarama.NewSyncProducer([]string{cfg.Addr}, nil)
@@ -42,26 +42,19 @@ func StartApiBroker(cfg config.Kafka) (*ApiBroker, func()) {
 
 	// Горутина для обработки входящих сообщений от Kafka
 	go func() {
-		for {
-			select {
-			case msg, ok := <-partConsumer.Messages():
-				if !ok {
-					logger.Infof("Channel closed, exiting goroutine")
-					return
-				}
-				responseID := string(msg.Key)
-				mu.Lock()
-				ch, exists := responseChannels[responseID]
-				if exists {
-					ch <- msg
-					delete(responseChannels, responseID)
-				}
-				mu.Unlock()
+		for msg := range partConsumer.Messages(){
+			responseID := string(msg.Key)
+			mu.Lock()
+			ch, exists := responseChannels[responseID]
+			if exists {
+				ch <- msg
+				// delete(responseChannels, responseID)
 			}
+			mu.Unlock()
 		}
+		logger.Infof("Channel closed, exiting goroutine")
 	}()
 
-	// кажется надо доджаться выполнения этой функции
 	return &ApiBroker{
 		Producer: producer,
 		Consumer: consumer,

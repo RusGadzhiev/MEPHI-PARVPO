@@ -27,7 +27,7 @@ func (h *HttpHandler) AddRecord(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if record.Concert == "" || record.Username == "" {
-		logger.Info("Bad Response")
+		logger.Info("Bad Request")
 		h.clientError(w)
 		return
 	}
@@ -54,7 +54,7 @@ func (h *HttpHandler) AddRecord(w http.ResponseWriter, r *http.Request) {
 
 	_, _, err = h.broker.Producer.SendMessage(msg)
 	if err != nil {
-		logger.Infof("Failed to send message to Kafka: %v", err)
+		logger.Errorf("Failed to send message to Kafka: %v", err)
 		h.serverError(w)
 		return
 	}
@@ -64,7 +64,6 @@ func (h *HttpHandler) AddRecord(w http.ResponseWriter, r *http.Request) {
 	h.broker.ResponseChannels[requestID] = responseCh
 	mu.Unlock()
 
-	// кажется здесь не надо в отдельной горутине запускать, эта функция уже в отдельной горутине
 	select {
 	case responseMsg := <-responseCh:
 		var receivedMessage string
@@ -80,13 +79,14 @@ func (h *HttpHandler) AddRecord(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			logger.Errorf("RenderJson err: %w", err)
 		}
-	case <-time.After(10 * time.Second):
-		mu.Lock()
-		delete(h.broker.ResponseChannels, requestID)
-		mu.Unlock()
+	case <-time.After(4 * time.Second):
 		logger.Infof("timeout waiting for response")
 		h.serverError(w)
 	}
+	mu.Lock()
+	close(h.broker.ResponseChannels[requestID])
+	delete(h.broker.ResponseChannels, requestID)
+	mu.Unlock()
 }
 
 // renderJSON преобразует 'v' в формат JSON и записывает результат, в виде ответа, в w.

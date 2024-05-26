@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -26,7 +27,6 @@ func main() {
 		logger.Fatal(err)
 	}
 	logger.Info("Storage postgres started successfully")
-
 	service := service.NewService(storage)
 
 	time.Sleep(7 * time.Second)
@@ -42,4 +42,5 @@ func main() {
 	if err := server.Run(ctx); err != nil {
 		logger.Fatal(err)
 	}
+	runtime.NumGoroutine()
 }

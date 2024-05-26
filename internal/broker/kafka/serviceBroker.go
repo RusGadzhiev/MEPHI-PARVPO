@@ -36,56 +36,47 @@ func StartServiceKafkaBroker(cfg config.Kafka, service Service) func() {
 		logger.Fatalf("Failed to consume partition: %v", err)
 	}
 
-	// кажется можно в отдельной горутине
 	go func() {
-		for {
-			select {
-			// (обработка входящего сообщения и отправка ответа в Kafka)
-			case msg, ok := <-partConsumer.Messages():
-				if !ok {
-					logger.Infof("Channel closed, exiting goroutine")
-					return
-				}
+		for msg := range partConsumer.Messages(){
+			var receivedMessage Message
+			err := json.Unmarshal(msg.Value, &receivedMessage)
 
-				var receivedMessage Message
-				err := json.Unmarshal(msg.Value, &receivedMessage)
+			if err != nil {
+				logger.Errorf("Error unmarshaling JSON: %v", err)
+				continue
+			}
 
-				if err != nil {
-					logger.Infof("Error unmarshaling JSON: %v", err)
-					continue
-				}
+			logger.Infof("Received message: %+v\n", receivedMessage)
 
-				logger.Infof("Received message: %+v\n", receivedMessage)
+			ctx, cancel := context.WithTimeout(context.Background(), 10 * time.Second)
+			err = service.AddRecord(ctx, receivedMessage.Value)
+			cancel()
 
-				ctx, cancel := context.WithTimeout(context.Background(), 10 * time.Second)
-				err = service.AddRecord(ctx, receivedMessage.Value)
-				cancel()
-				var respMsg string
-				if err != nil {
-					respMsg = err.Error()
-				} else {
-					respMsg = "Place reserved"
-				}
+			var respMsg string
+			if err != nil {
+				respMsg = err.Error()
+			} else {
+				respMsg = "Place reserved"
+			}
 
-				bytes, err := json.Marshal(respMsg)
-				if err != nil {
-					logger.Infof("Failed to marshal respomse message to Kafka: %v", err)
-					continue
-				}
+			bytes, err := json.Marshal(respMsg)
+			if err != nil {
+				logger.Errorf("Failed to marshal response message to Kafka: %v", err)
+				continue
+			}
 
-				// Формируем ответное сообщение
-				resp := &sarama.ProducerMessage{
-					Topic: ResponseTopic,
-					Key:   sarama.StringEncoder(receivedMessage.ID),
-					Value: sarama.ByteEncoder(bytes),
-				}
+			resp := &sarama.ProducerMessage{
+				Topic: ResponseTopic,
+				Key:   sarama.StringEncoder(receivedMessage.ID),
+				Value: sarama.ByteEncoder(bytes),
+			}
 
-				_, _, err = producer.SendMessage(resp)
-				if err != nil {
-					logger.Infof("Failed to send message to Kafka: %v", err)
-				}
+			_, _, err = producer.SendMessage(resp)
+			if err != nil {
+				logger.Errorf("Failed to send message to Kafka: %v", err)
 			}
 		}
+		logger.Infof("Channel closed, exiting goroutine")
 	}()
 
 	return func() {

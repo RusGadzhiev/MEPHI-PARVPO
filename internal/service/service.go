@@ -50,7 +50,6 @@ func (s *service) AddRecord(ctx context.Context, record Record) error {
 	}
 
 	if concert.SoldOut {
-		logger.Infof("Sold out on the concert: %s", concert.Name)
 		return ErrSoldOut
 	}
 

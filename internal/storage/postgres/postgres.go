@@ -62,7 +62,7 @@ var createQuery = `
 
 var insertQuery = `
 	INSERT INTO concerts(name, places_qty, qty_occupied_places, sold_out) VALUES(
-		'miyagi', 1000, 0, FALSE
+		'miyagi', 10000000, 0, FALSE
 	) ON CONFLICT (name) DO NOTHING;
 `
 
