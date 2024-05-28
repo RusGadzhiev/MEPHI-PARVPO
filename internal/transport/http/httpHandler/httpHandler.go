@@ -27,7 +27,7 @@ func (h *HttpHandler) AddRecord(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if record.Concert == "" || record.Username == "" {
-		logger.Info("Bad Request")
+		logger.Warn("Request parameters are missing")
 		h.clientError(w)
 		return
 	}

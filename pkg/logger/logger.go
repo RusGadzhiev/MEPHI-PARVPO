@@ -48,3 +48,15 @@ func Fatal(args ...interface{}) {
 func Fatalf(template string, args ...interface{}) {
 	zap.S().Fatalf(template, args...)
 }
+
+func Warnf(template string, args ...interface{}) {
+	zap.S().Warnf(template, args...)
+}
+
+func Warn(args ...interface{}) {
+	zap.S().Warn(args...)
+}
+
+func Sync() {
+	zap.S().Sync()
+}

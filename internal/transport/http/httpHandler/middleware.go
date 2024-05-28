@@ -2,13 +2,17 @@ package httpHandler
 
 import (
 	"net/http"
+	"time"
+
 	"github.com/RusGadzhiev/MEPHI-PARVPO/pkg/logger"
 )
 
 func (h *HttpHandler) LoggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		logger.Info("New request: ", "method - ", r.Method, " remote_addr - ", r.RemoteAddr, " url - ", r.URL.Path)
+		start := time.Now()
 		next.ServeHTTP(w, r)
+		logger.Info("New request: ", "method - ", r.Method, " remote_addr - ", r.RemoteAddr, " url - ", r.URL.Path)
+		logger.Infof("Time to response: %v", time.Since(start))
 	})
 }
 

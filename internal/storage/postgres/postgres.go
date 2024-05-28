@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/RusGadzhiev/MEPHI-PARVPO/internal/config"
 	"github.com/RusGadzhiev/MEPHI-PARVPO/internal/service"
+	"github.com/RusGadzhiev/MEPHI-PARVPO/pkg/logger"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var createQuery = `
@@ -82,7 +84,6 @@ type postgresStorage struct {
 
 func NewPostgresStorage(ctx context.Context, cfg config.PgDb) (*postgresStorage, error) {
 	dsn := fmt.Sprintf("postgresql://%s:%s@%s:%s/%s", cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Name)
-
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		return nil, ErrNewPoolPostgres
@@ -93,8 +94,20 @@ func NewPostgresStorage(ctx context.Context, cfg config.PgDb) (*postgresStorage,
 
 	err = prepareDB(ctx, pool)
 	if err != nil {
+		logger.Errorf("db prepare error: %w", err)
 		return nil, fmt.Errorf("db prepare error: %w", err)
 	}
+
+	go func() {
+		<- time.After(25 * time.Second)
+		contx, cancel := context.WithTimeout(context.Background(), 5 * time.Second)
+		defer cancel()
+		if err := pool.Ping(contx); err != nil {
+			logger.Fatalf("Connection to the database is closed")
+			return
+		}
+		logger.Debugf("Connection to the database is normal")
+	}()
 
 	return &postgresStorage{
 		pool: pool,
