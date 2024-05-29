@@ -37,7 +37,7 @@ func main() {
 	closeService := kafka.StartServiceKafkaBroker(cfg.Kafka, service)
 	defer closeService()
 
-	httpHandler := httpHandler.NewHttpHandler(*apiBroker)
+	httpHandler := httpHandler.NewHttpHandler(apiBroker)
 	server := httpServer.NewHttpServer(ctx, httpHandler, cfg.Server)
 
 	if err := server.Run(ctx); err != nil {

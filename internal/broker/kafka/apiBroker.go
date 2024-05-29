@@ -1,11 +1,15 @@
 package kafka
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
 	"sync"
+	"time"
 
 	"github.com/IBM/sarama"
-	"github.com/RusGadzhiev/MEPHI-PARVPO/pkg/logger"
 	"github.com/RusGadzhiev/MEPHI-PARVPO/internal/config"
+	"github.com/RusGadzhiev/MEPHI-PARVPO/pkg/logger"
 )
 
 const (
@@ -14,12 +18,51 @@ const (
 )
 
 type ApiBroker struct {
-	ResponseChannels map[string]chan *sarama.ConsumerMessage
-	Producer         sarama.SyncProducer
-	Consumer         sarama.Consumer
-	PartConsumer     sarama.PartitionConsumer
+	mu               *sync.Mutex
+	responseChannels map[string]chan *sarama.ConsumerMessage
+	producer         sarama.SyncProducer
 }
 
+func (b *ApiBroker) Send(ctx context.Context, msg Message) (string, error) {
+	bytes, err := json.Marshal(msg)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal JSON err: %v", err)
+	}
+
+	message := &sarama.ProducerMessage{
+		Topic: RequestsTopic,
+		Key:   sarama.StringEncoder(msg.ID),
+		Value: sarama.ByteEncoder(bytes),
+	}
+
+	_, _, err = b.producer.SendMessage(message)
+	if err != nil {
+		return "", fmt.Errorf("failed to send message to Kafka: %v", err)
+	}
+
+	responseCh := make(chan *sarama.ConsumerMessage)
+	b.mu.Lock()
+	b.responseChannels[msg.ID] = responseCh
+	b.mu.Unlock()
+	defer func() {
+		b.mu.Lock()
+		close(b.responseChannels[msg.ID])
+		delete(b.responseChannels, msg.ID)
+		b.mu.Unlock()
+	}()
+
+	select {
+	case responseMsg := <-responseCh:
+		var receivedMessage string
+		err := json.Unmarshal(responseMsg.Value, &receivedMessage)
+		if err != nil {
+			return "", fmt.Errorf("error unmarshaling JSON: %v", err)
+		}
+		return receivedMessage, nil
+	case <-time.After(4 * time.Second):
+		return "", fmt.Errorf("timeout waiting for response")
+	}
+}
 
 func StartApiBroker(cfg config.Kafka) (*ApiBroker, func()) {
 	responseChannels := make(map[string]chan *sarama.ConsumerMessage, 100)
@@ -42,13 +85,12 @@ func StartApiBroker(cfg config.Kafka) (*ApiBroker, func()) {
 
 	// Горутина для обработки входящих сообщений от Kafka
 	go func() {
-		for msg := range partConsumer.Messages(){
+		for msg := range partConsumer.Messages() {
 			responseID := string(msg.Key)
 			mu.Lock()
 			ch, exists := responseChannels[responseID]
 			if exists {
 				ch <- msg
-				// delete(responseChannels, responseID)
 			}
 			mu.Unlock()
 		}
@@ -56,13 +98,12 @@ func StartApiBroker(cfg config.Kafka) (*ApiBroker, func()) {
 	}()
 
 	return &ApiBroker{
-		Producer: producer,
-		Consumer: consumer,
-		PartConsumer: partConsumer,
-		ResponseChannels: responseChannels,
-	}, func() {
-		producer.Close()
-		consumer.Close()
-		partConsumer.Close()
-	}
+			mu:               &mu,
+			producer:         producer,
+			responseChannels: responseChannels,
+		}, func() {
+			producer.Close()
+			consumer.Close()
+			partConsumer.Close()
+		}
 }
